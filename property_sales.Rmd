@@ -1,0 +1,229 @@
+---
+title: "Property sales Melbourne City"
+output: hrbrthemes::ipsum
+---
+<style>
+.container {
+    max-width: 1800px;
+    margin-left: 100px;
+    margin-right: auto;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.width=4, fig.height=5}
+library(tidyverse)
+library(plotly)
+library(lubridate)
+library(glue)
+library(hrbrthemes)
+library(RColorBrewer)
+theme_set(theme_ipsum_rc(caption_size = 10,
+                      plot_title_margin = 0, 
+                      subtitle_margin = 0, 
+                      caption_margin = 10, 
+                      plot_margin = margin(0, 0, 0, 0),
+                      grid_col = '#f0f0f0'))
+
+
+property_sales <- read_csv('property_sales_melbourne.csv') %>%
+  select(-`...1`) %>%
+  mutate(Date = dmy(Date))
+
+segments <- property_sales %>%
+  filter(Type != 'VB') %>%
+  group_by(SellerG) %>%
+  summarise(Revenue = sum(Price),
+            Count = n()) %>%
+  ungroup() %>%
+  arrange(desc(Revenue)) %>%
+  mutate(rn = row_number(),
+         RevShare = round(Revenue / sum(Revenue), 4),
+         RevShareCumul = round(cumsum(RevShare), 4)) %>%
+  mutate(SegmentID = case_when(rn <= 6 ~ 1,
+                               rn <= 17 ~ 2,
+                               rn <= 66 ~ 3,
+                               T ~ 4)) %>%
+  group_by(SegmentID) %>%
+  rename(Rank = rn) %>%
+  select(SegmentID, SellerG, Rank)
+```
+
+# Intro
+
+There are many ways to measure "performance" of real estate agencies. In this analysis we'll look at the performance from the position of a potential seller. We'll look at several characteristics that a property owner might want to consider when hiring a real estate agency.
+
+## Assumptions
+- Every seller in the data set is an independent agent or agency;
+
+# Performence
+
+Let's look at the market as a whole.
+
+- The real estate market is asymmetric: minority of agencies sell majority of properties;
+- For example, top 6 (out of 305) agencies generate 50% of revenue;
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.width=14, fig.height=7}
+ggplotly(
+  property_sales %>%
+    filter(Type != 'VB') %>%
+    group_by(SellerG) %>%
+    summarise(Revenue = sum(Price),
+              Count = n()) %>%
+    ungroup() %>%
+    arrange(desc(Revenue)) %>%
+    mutate(rn = row_number(),
+           RevShare = round(Revenue / sum(Revenue), 4),
+           RevShareCumul = cumsum(RevShare)) %>%
+    ggplot(aes(rn, RevShareCumul)) +
+    geom_line() +
+    geom_point(aes(alpha = rn %in% c(6, 17, 66))) +
+    geom_text(aes(label = ifelse(rn %in% c(6, 17, 66), glue('{rn} agencies = {scales::percent(RevShareCumul, accuracy = 0.1)} of revenue'), NA)), nudge_x = 28) +
+    scale_y_continuous(labels = scales::percent, limits = c(0, NA)) +
+    scale_alpha_manual(values = c(0, 1)) +
+    guides(alpha = F) +
+    labs(title = 'Market structure',
+         x = 'Number of agencies',
+         y = 'Cumulative share of revenue')
+) #%>% htmlwidgets::saveWidget('p.html')
+```
+
+Let's assume that our potential seller does not want to deal with small unknown agencies (it might be risky after all) and decided to focus on large- and medium-sized agencies. Now he want's to find out what agencies has the most experience with properties similar to his.
+
+- All agencies sell mostly houses, but some have more experience with other types of properties;
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.width=14, fig.height=7}
+ggplotly(
+  property_sales %>%
+    filter(Method != 'VB') %>%
+    mutate(Type = case_when(Type == 'h' ~ 'House',
+                            Type == 't' ~ 'Townhouse',
+                            Type == 'u' ~ 'Unit')) %>%
+    group_by(SellerG, Type) %>%
+    summarise(Revenue = sum(Price),
+              Count = n()) %>%
+    ungroup() %>%
+    left_join(segments) %>%
+    group_by(SellerG) %>%
+    mutate(RevShare = Revenue / sum(Revenue)) %>%
+    ungroup() %>%
+    filter(SegmentID <= 3) %>%
+    mutate(SellerG = glue('{str_pad(Rank, 2, side = "left", pad = "0")}. {SellerG}'),
+           SellerG = reorder(SellerG, Rank)) %>%
+    ggplot(aes(SellerG, RevShare, fill = Type, label1 = Count)) +
+    geom_col() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_brewer(palette = 'Set2') +
+    labs(title = 'Revenue share by property type',
+         y = '',
+         x = '') +
+    theme(axis.text.x = element_text(angle = -90, vjust = 0.5, hjust=1))
+) #%>% htmlwidgets::saveWidget('p.html')
+```
+
+- Agencies tend to specialize in particular region(s);
+- Southern Metropolitan area is the most common, but some agencies (incl. some big ones) explicitly focus on other areas;
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.width=14, fig.height=7}
+ggplotly(
+  property_sales %>%
+    filter(Method != 'VB') %>%
+    mutate(Regionname = ifelse(Regionname %in% c('Northern Metropolitan', 'Southern Metropolitan', 'Western Metropolitan', 'Eastern Metropolitan'), Regionname, 'Other'),
+           Regionname = factor(Regionname, levels = c('Northern Metropolitan', 'Southern Metropolitan', 'Other', 'Western Metropolitan', 'Eastern Metropolitan'))) %>%
+    group_by(SellerG, Regionname) %>%
+    summarise(Revenue = sum(Price),
+              Count = n()) %>%
+    ungroup() %>%
+    left_join(segments) %>%
+    group_by(SellerG) %>%
+    mutate(RevShare = Revenue / sum(Revenue)) %>%
+    ungroup() %>%
+    filter(SegmentID <= 3) %>%
+    mutate(SellerG = glue('{str_pad(Rank, 2, side = "left", pad = "0")}. {SellerG}'),
+           SellerG = reorder(SellerG, Rank)) %>%
+    ggplot(aes(SellerG, RevShare, fill = Regionname, label1 = Count)) +
+    geom_col() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_brewer(palette = 'BrBG') +
+    labs(title = 'Revenue share by region',
+         y = '',
+         x = '') +
+    theme(axis.text.x = element_text(angle = -90, vjust = 0.5, hjust=1))
+) #%>% htmlwidgets::saveWidget('p.html')
+```
+
+- Most agencies sell all kinds of properties, but some tend to specialize on extremes (premium or low segments);
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.width=14, fig.height=7}
+ggplotly(
+  property_sales %>%
+    filter(Method != 'VB') %>%
+    left_join(segments) %>%
+    filter(SegmentID <= 3) %>%
+    mutate(SellerG = glue('{str_pad(Rank, 2, side = "left", pad = "0")}. {SellerG}'),
+           SellerG = reorder(SellerG, Rank)) %>%
+    ggplot(aes(SellerG, Price)) +
+    geom_boxplot() +
+    geom_hline(yintercept = property_sales %>%
+                 filter(Method != 'VB') %>%
+                 summarise(MedianPrice = median(Price)) %>%
+                 .$MedianPrice,
+               color = 'red') +
+    scale_y_continuous(labels = scales::comma) +
+    # scale_y_log10(labels = scales::comma) +
+    labs(title = 'Property price',
+         x = '') +
+    theme(axis.text.x = element_text(angle = -90, vjust = 0.5, hjust=1))
+) #%>% htmlwidgets::saveWidget('p.html')
+```
+
+The main job of an agency (from the seller's point of view) is to sell the property. So when a property is purchased by the seller himself ("vendor bid"), probably the agency didn't set the expectation right or made a poor marketing job.
+
+- Some agencies fail to sell a property more than others ("vendor bid");
+- "Passed in" is also not desirable state because the negotiations might ended up with a lower price or a sales might not happen at all;
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE, error=FALSE, fig.width=14, fig.height=7}
+ggplotly(
+  property_sales %>%
+    mutate(Method = case_when(Method %in% c('S', 'SP', 'SA') ~ 'Sold',
+                              Method == 'PI' ~ 'Passed in',
+                              Method == 'VB' ~ 'Vendor bid'),
+           Method = factor(Method, levels = c('Sold', 'Passed in', 'Vendor bid'))) %>%
+    group_by(SellerG, Method) %>%
+    summarise(Revenue = sum(Price),
+              Count = n()) %>%
+    ungroup() %>%
+    left_join(segments) %>%
+    group_by(SellerG) %>%
+    mutate(RevShare = Revenue / sum(Revenue)) %>%
+    ungroup() %>%
+    filter(SegmentID <= 3) %>%
+    mutate(SellerG = glue('{str_pad(Rank, 2, side = "left", pad = "0")}. {SellerG}'),
+           SellerG = reorder(SellerG, Rank)) %>%
+    ggplot(aes(SellerG, RevShare, fill = Method, label1 = Count)) +
+    geom_col() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_manual(values = c('Sold' = '#00BF7D', 'Passed in' = '#FFD700', 'Vendor bid' = '#F8766D')) +
+    labs(title = 'Revenue share by method',
+         y = '',
+         x = '') +
+    theme(axis.text.x = element_text(angle = -90, vjust = 0.5, hjust=1))
+) #%>% htmlwidgets::saveWidget('p.html')
+```
+
+## Summary
+- Minority of the agencies sell majority of the properties;
+- Different agencies focus on different areas and price segments;
+- Some agencies fail to sell properties more often than other;
+
+
+
+
+
+
+
+
+
